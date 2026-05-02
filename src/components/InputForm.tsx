@@ -1,93 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { P_VALS, J_MIN, J_MAX, W_MIN, W_MAX } from "@/lib/constants";
 
 export interface FormValues {
   p_psf: string;
-  a_ft: string;
-  b_ft: string;
-  L_ft: string;
+  j_ft: string;
   W_ft: string;
-  S_ft: string;
-  Va_connection: string;
 }
-
-interface FieldConfig {
-  key: keyof FormValues;
-  label: string;
-  unit: string;
-  placeholder: string;
-  helper: string;
-  required: boolean;
-}
-
-const FIELDS: FieldConfig[] = [
-  {
-    key: "p_psf",
-    label: "Floor Load",
-    unit: "PSF",
-    placeholder: "50",
-    helper: "Total load on the deck (dead + live). Typical: 50 PSF.",
-    required: true,
-  },
-  {
-    key: "a_ft",
-    label: "Bumpout Depth",
-    unit: "ft",
-    placeholder: "3",
-    helper: "How far the bumpout extends from the house wall.",
-    required: true,
-  },
-  {
-    key: "b_ft",
-    label: "Overhang Past Post",
-    unit: "ft",
-    placeholder: "3",
-    helper: "How far the outer beam extends beyond the end posts.",
-    required: true,
-  },
-  {
-    key: "L_ft",
-    label: "Wall to Posts",
-    unit: "ft",
-    placeholder: "13",
-    helper: "Distance from the house wall to the line of posts.",
-    required: true,
-  },
-  {
-    key: "W_ft",
-    label: "Bumpout Width",
-    unit: "ft",
-    placeholder: "13",
-    helper: "Total side-to-side width of the bumpout.",
-    required: true,
-  },
-  {
-    key: "S_ft",
-    label: "Post Spacing",
-    unit: "ft",
-    placeholder: "9.25",
-    helper: "Center-to-center distance between posts along the outer beam.",
-    required: true,
-  },
-  {
-    key: "Va_connection",
-    label: "Connection Capacity (optional)",
-    unit: "lbs",
-    placeholder: "",
-    helper: "Known capacity of the ledger connection. Leave blank to skip check.",
-    required: false,
-  },
-];
 
 const DEFAULTS: FormValues = {
   p_psf: "50",
-  a_ft: "3",
-  b_ft: "3",
-  L_ft: "13",
+  j_ft: "10",
   W_ft: "13",
-  S_ft: "9.25",
-  Va_connection: "",
 };
 
 interface InputFormProps {
@@ -102,21 +27,22 @@ export default function InputForm({ onSubmit, loading, onChange }: InputFormProp
 
   function validate(): boolean {
     const newErrors: Partial<Record<keyof FormValues, string>> = {};
-    for (const field of FIELDS) {
-      if (field.required) {
-        const val = values[field.key].trim();
-        if (!val) {
-          newErrors[field.key] = "Required";
-        } else if (isNaN(Number(val)) || Number(val) <= 0) {
-          newErrors[field.key] = "Must be a positive number";
-        }
-      } else if (values[field.key].trim()) {
-        const val = values[field.key].trim();
-        if (isNaN(Number(val)) || Number(val) <= 0) {
-          newErrors[field.key] = "Must be a positive number";
-        }
-      }
+
+    const p = Number(values.p_psf);
+    if (!P_VALS.includes(p as typeof P_VALS[number])) {
+      newErrors.p_psf = `Must be one of: ${P_VALS.join(", ")}`;
     }
+
+    const j = Number(values.j_ft);
+    if (!values.j_ft.trim() || isNaN(j) || j < J_MIN || j > J_MAX || !Number.isInteger(j)) {
+      newErrors.j_ft = `Whole number from ${J_MIN} to ${J_MAX}`;
+    }
+
+    const w = Number(values.W_ft);
+    if (!values.W_ft.trim() || isNaN(w) || w < W_MIN || w > W_MAX || !Number.isInteger(w)) {
+      newErrors.W_ft = `Whole number from ${W_MIN} to ${W_MAX}`;
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }
@@ -127,9 +53,7 @@ export default function InputForm({ onSubmit, loading, onChange }: InputFormProp
     if (errors[key]) {
       setErrors((prev) => ({ ...prev, [key]: undefined }));
     }
-    if (onChange) {
-      onChange(newValues);
-    }
+    onChange?.(newValues);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -141,47 +65,95 @@ export default function InputForm({ onSubmit, loading, onChange }: InputFormProp
 
   return (
     <form onSubmit={handleSubmit} noValidate>
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        {FIELDS.map((field) => (
-          <div key={field.key}>
-            <label
-              htmlFor={field.key}
-              className="block text-lg font-bold text-gray-800 mb-1"
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+        {/* Load dropdown */}
+        <div>
+          <label htmlFor="p_psf" className="block text-lg font-bold text-gray-800 mb-1">
+            Floor Load <span className="text-red-500 ml-1" aria-hidden="true">*</span>
+          </label>
+          <div className="flex rounded-lg overflow-hidden border-2 border-gray-300 focus-within:border-blue-600">
+            <select
+              id="p_psf"
+              value={values.p_psf}
+              onChange={(e) => handleChange("p_psf", e.target.value)}
+              className="flex-1 px-4 py-4 text-xl text-gray-900 bg-white outline-none min-w-0 appearance-none"
+              aria-required
             >
-              {field.label}
-              {field.required && (
-                <span className="text-red-500 ml-1" aria-hidden="true">*</span>
-              )}
-            </label>
-            <div className="flex rounded-lg overflow-hidden border-2 border-gray-300 focus-within:border-blue-600">
-              <input
-                id={field.key}
-                type="number"
-                inputMode="decimal"
-                placeholder={field.placeholder}
-                value={values[field.key]}
-                onChange={(e) => handleChange(field.key, e.target.value)}
-                aria-describedby={`${field.key}-helper`}
-                className="flex-1 px-4 py-4 text-xl text-gray-900 bg-white outline-none min-w-0"
-                aria-required={field.required}
-              />
-              <span className="flex items-center px-4 bg-gray-100 text-gray-600 text-lg font-semibold border-l-2 border-gray-300 whitespace-nowrap">
-                {field.unit}
-              </span>
-            </div>
-            {errors[field.key] && (
-              <p className="mt-1 text-base text-red-600 font-semibold" role="alert">
-                {errors[field.key]}
-              </p>
-            )}
-            <p
-              id={`${field.key}-helper`}
-              className="mt-1 text-sm text-gray-500"
-            >
-              {field.helper}
-            </p>
+              {P_VALS.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <span className="flex items-center px-4 bg-gray-100 text-gray-600 text-lg font-semibold border-l-2 border-gray-300 whitespace-nowrap">
+              PSF
+            </span>
           </div>
-        ))}
+          {errors.p_psf && (
+            <p className="mt-1 text-base text-red-600 font-semibold" role="alert">{errors.p_psf}</p>
+          )}
+          <p className="mt-1 text-sm text-gray-500">Total load on the deck (dead + live).</p>
+        </div>
+
+        {/* Joist span */}
+        <div>
+          <label htmlFor="j_ft" className="block text-lg font-bold text-gray-800 mb-1">
+            Joist Span <span className="text-red-500 ml-1" aria-hidden="true">*</span>
+          </label>
+          <div className="flex rounded-lg overflow-hidden border-2 border-gray-300 focus-within:border-blue-600">
+            <input
+              id="j_ft"
+              type="number"
+              inputMode="numeric"
+              min={J_MIN}
+              max={J_MAX}
+              step={1}
+              placeholder="10"
+              value={values.j_ft}
+              onChange={(e) => handleChange("j_ft", e.target.value)}
+              className="flex-1 px-4 py-4 text-xl text-gray-900 bg-white outline-none min-w-0"
+              aria-required
+            />
+            <span className="flex items-center px-4 bg-gray-100 text-gray-600 text-lg font-semibold border-l-2 border-gray-300 whitespace-nowrap">
+              ft
+            </span>
+          </div>
+          {errors.j_ft && (
+            <p className="mt-1 text-base text-red-600 font-semibold" role="alert">{errors.j_ft}</p>
+          )}
+          <p className="mt-1 text-sm text-gray-500">
+            Distance from carry beam to outer box beam ({J_MIN}–{J_MAX} ft).
+          </p>
+        </div>
+
+        {/* Bumpout width */}
+        <div>
+          <label htmlFor="W_ft" className="block text-lg font-bold text-gray-800 mb-1">
+            Bumpout Width <span className="text-red-500 ml-1" aria-hidden="true">*</span>
+          </label>
+          <div className="flex rounded-lg overflow-hidden border-2 border-gray-300 focus-within:border-blue-600">
+            <input
+              id="W_ft"
+              type="number"
+              inputMode="numeric"
+              min={W_MIN}
+              max={W_MAX}
+              step={1}
+              placeholder="13"
+              value={values.W_ft}
+              onChange={(e) => handleChange("W_ft", e.target.value)}
+              className="flex-1 px-4 py-4 text-xl text-gray-900 bg-white outline-none min-w-0"
+              aria-required
+            />
+            <span className="flex items-center px-4 bg-gray-100 text-gray-600 text-lg font-semibold border-l-2 border-gray-300 whitespace-nowrap">
+              ft
+            </span>
+          </div>
+          {errors.W_ft && (
+            <p className="mt-1 text-base text-red-600 font-semibold" role="alert">{errors.W_ft}</p>
+          )}
+          <p className="mt-1 text-sm text-gray-500">
+            Side-to-side width of the bumpout ({W_MIN}–{W_MAX} ft). Posts at corners.
+          </p>
+        </div>
       </div>
 
       <div className="mt-8">

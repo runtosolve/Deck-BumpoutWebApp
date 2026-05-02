@@ -1,380 +1,151 @@
 import {
-  BumpoutInputs,
-  BumpoutDesignResult,
-  CheckResult,
-  MemberSelection,
+  SimpleInputs,
+  SimpleDesignResult,
+  HBeamSelection,
+  LateralSelection,
 } from './types';
 import {
-  SINGLE_BOX_BEAM,
-  DOUBLE_BOX_BEAM,
-  MN_2IN,
-  VA_2IN,
-  E_CFS_PSI,
-  JOIST_SPACING_FT,
+  E_PSI, JOIST_SPACING_FT, WT_SBB,
+  S2IN, D2IN, DBB, SBB,
 } from './constants';
 import { validateInputs } from './validation';
 
-/**
- * Compute midspan deflection for a simply-supported uniformly loaded beam.
- * w_plf: load in plf, L_ft: span in ft, EI: E*I in lb·in²
- * Returns deflection in inches.
- */
-function deflectionSimpleUDL(w_plf: number, L_ft: number, EI: number): number {
-  const w = w_plf / 12; // convert plf → lb/in
-  const L = L_ft * 12;  // ft → in
-  return (5 * w * Math.pow(L, 4)) / (384 * EI);
+// ---------------------------------------------------------------------------
+// Deflection: simply-supported UDL, δ = 5wL⁴/(384EI), limit L/240
+// ---------------------------------------------------------------------------
+function deflUdlOk(w_lbft: number, L_ft: number, Ix: number): boolean {
+  const L = L_ft * 12;
+  const w = w_lbft / 12;
+  const delta = (5 * w * L ** 4) / (384 * E_PSI * Ix);
+  return delta <= L / 240;
 }
 
-/**
- * Select box beam based on moment, shear, and optional deflection check.
- * Returns the member selection string.
- */
-function selectBoxBeam(
-  M_demand: number,
-  V_demand: number,
-  w_plf: number,
-  span_ft: number,
-  checks: CheckResult[]
-): MemberSelection {
-  const deflLimit = (span_ft * 12) / 240; // L/240 in inches
+// ---------------------------------------------------------------------------
+// H-beam deflection: combined point load + partial UDL, limit L/240
+// ---------------------------------------------------------------------------
+function deflHbeamOk(
+  w_h: number, P: number, a_ft: number, j_ft: number, L_ft: number, Ix: number
+): boolean {
+  const L = L_ft * 12;
+  const a = a_ft * 12;
+  const w = w_h / 12;
+  const j = j_ft * 12;
 
-  // Check single
-  const singleEI = E_CFS_PSI * SINGLE_BOX_BEAM.Ix;
-  const deflSingle = deflectionSimpleUDL(w_plf, span_ft, singleEI);
-  const singleMPass = M_demand <= SINGLE_BOX_BEAM.Mal;
-  const singleVPass = V_demand <= SINGLE_BOX_BEAM.Va;
-  const singleDPass = deflSingle <= deflLimit;
+  // Point load at x=a: midspan deflection (conservative — uses c=min(a,L-a))
+  const c = Math.min(a, L - a);
+  const delta_pt = (P * c * (3 * L ** 2 - 4 * c ** 2)) / (48 * E_PSI * Ix);
 
-  checks.push({
-    label: 'Box Beam (single) – Moment',
-    demand: M_demand,
-    capacity: SINGLE_BOX_BEAM.Mal,
-    DCR: M_demand / SINGLE_BOX_BEAM.Mal,
-    pass: singleMPass,
-  });
-  checks.push({
-    label: 'Box Beam (single) – Shear',
-    demand: V_demand,
-    capacity: SINGLE_BOX_BEAM.Va,
-    DCR: V_demand / SINGLE_BOX_BEAM.Va,
-    pass: singleVPass,
-  });
-  checks.push({
-    label: 'Box Beam (single) – Deflection (L/240)',
-    demand: deflSingle,
-    capacity: deflLimit,
-    DCR: deflSingle / deflLimit,
-    pass: singleDPass,
-  });
+  // Partial UDL from x=a to x=L (deck trib, half-bay of 16" OC joists)
+  const R_A2 = (w * j ** 2) / (2 * L);
+  const delta_tr =
+    (L / 2 >= a
+      ? R_A2 * L ** 3 / 16 + (w * (2 * (L / 2 - a) ** 4 - j ** 4)) / 48
+      : R_A2 * L ** 3 / 16 - (w * j ** 4) / 48
+    ) / (E_PSI * Ix);
 
-  if (singleMPass && singleVPass && singleDPass) return 'single';
-
-  // Check double
-  const doubleEI = E_CFS_PSI * DOUBLE_BOX_BEAM.Ix;
-  const deflDouble = deflectionSimpleUDL(w_plf, span_ft, doubleEI);
-  const doubleMPass = M_demand <= DOUBLE_BOX_BEAM.Mal;
-  const doubleVPass = V_demand <= DOUBLE_BOX_BEAM.Va;
-  const doubleDPass = deflDouble <= deflLimit;
-
-  checks.push({
-    label: 'Box Beam (double) – Moment',
-    demand: M_demand,
-    capacity: DOUBLE_BOX_BEAM.Mal,
-    DCR: M_demand / DOUBLE_BOX_BEAM.Mal,
-    pass: doubleMPass,
-  });
-  checks.push({
-    label: 'Box Beam (double) – Shear',
-    demand: V_demand,
-    capacity: DOUBLE_BOX_BEAM.Va,
-    DCR: V_demand / DOUBLE_BOX_BEAM.Va,
-    pass: doubleVPass,
-  });
-  checks.push({
-    label: 'Box Beam (double) – Deflection (L/240)',
-    demand: deflDouble,
-    capacity: deflLimit,
-    DCR: deflDouble / deflLimit,
-    pass: doubleDPass,
-  });
-
-  if (doubleMPass && doubleVPass && doubleDPass) return 'double';
-
-  return 'exceeds';
+  return (delta_pt + delta_tr) <= L / 240;
 }
 
-/**
- * Select ledger member based on moment and shear demands.
- */
-function selectLedger(
-  M_demand: number,
-  V_demand: number,
-  w_plf: number,
-  span_ft: number,
-  checks: CheckResult[]
-): MemberSelection {
-  const deflLimit = (span_ft * 12) / 240;
-
-  // Try single box beam
-  const singleEI = E_CFS_PSI * SINGLE_BOX_BEAM.Ix;
-  const deflSingle = deflectionSimpleUDL(w_plf, span_ft, singleEI);
-  const sMPass = M_demand <= SINGLE_BOX_BEAM.Mal;
-  const sVPass = V_demand <= SINGLE_BOX_BEAM.Va;
-  const sDPass = deflSingle <= deflLimit;
-
-  checks.push({
-    label: 'Ledger (single box beam) – Moment',
-    demand: M_demand,
-    capacity: SINGLE_BOX_BEAM.Mal,
-    DCR: M_demand / SINGLE_BOX_BEAM.Mal,
-    pass: sMPass,
-  });
-  checks.push({
-    label: 'Ledger (single box beam) – Shear',
-    demand: V_demand,
-    capacity: SINGLE_BOX_BEAM.Va,
-    DCR: V_demand / SINGLE_BOX_BEAM.Va,
-    pass: sVPass,
-  });
-  checks.push({
-    label: 'Ledger (single box beam) – Deflection (L/240)',
-    demand: deflSingle,
-    capacity: deflLimit,
-    DCR: deflSingle / deflLimit,
-    pass: sDPass,
-  });
-
-  if (sMPass && sVPass && sDPass) return 'single_box_beam';
-
-  // Try double box beam
-  const doubleEI = E_CFS_PSI * DOUBLE_BOX_BEAM.Ix;
-  const deflDouble = deflectionSimpleUDL(w_plf, span_ft, doubleEI);
-  const dMPass = M_demand <= DOUBLE_BOX_BEAM.Mal;
-  const dVPass = V_demand <= DOUBLE_BOX_BEAM.Va;
-  const dDPass = deflDouble <= deflLimit;
-
-  checks.push({
-    label: 'Ledger (double box beam) – Moment',
-    demand: M_demand,
-    capacity: DOUBLE_BOX_BEAM.Mal,
-    DCR: M_demand / DOUBLE_BOX_BEAM.Mal,
-    pass: dMPass,
-  });
-  checks.push({
-    label: 'Ledger (double box beam) – Shear',
-    demand: V_demand,
-    capacity: DOUBLE_BOX_BEAM.Va,
-    DCR: V_demand / DOUBLE_BOX_BEAM.Va,
-    pass: dVPass,
-  });
-  checks.push({
-    label: 'Ledger (double box beam) – Deflection (L/240)',
-    demand: deflDouble,
-    capacity: deflLimit,
-    DCR: deflDouble / deflLimit,
-    pass: dDPass,
-  });
-
-  if (dMPass && dVPass && dDPass) return 'double_box_beam';
-
+// ---------------------------------------------------------------------------
+// Member selection
+// ---------------------------------------------------------------------------
+function selHbeam(
+  M: number, V: number, w_h: number, P: number, a_ft: number, j_ft: number
+): HBeamSelection {
+  const L = a_ft + j_ft;
+  if (M <= S2IN.Mal && V <= S2IN.Va && deflHbeamOk(w_h, P, a_ft, j_ft, L, S2IN.Ix)) return 's2in';
+  if (M <= D2IN.Mal && V <= D2IN.Va && deflHbeamOk(w_h, P, a_ft, j_ft, L, D2IN.Ix)) return 'd2in';
+  if (M <= DBB.Mal  && V <= DBB.Va  && deflHbeamOk(w_h, P, a_ft, j_ft, L, DBB.Ix))  return 'dbb';
   return 'fails';
 }
 
-/**
- * Select H-beam member based on moment and shear demands.
- * Ladder: single_2in → single_box_beam → double_box_beam → fails
- */
-function selectHbeam(
-  M_demand: number,
-  V_demand: number,
-  checks: CheckResult[]
-): MemberSelection {
-  // Try single 2in
-  const s2MPass = M_demand <= MN_2IN;
-  const s2VPass = V_demand <= VA_2IN;
-
-  checks.push({
-    label: 'H-Beam (single 2in) – Moment',
-    demand: M_demand,
-    capacity: MN_2IN,
-    DCR: M_demand / MN_2IN,
-    pass: s2MPass,
-  });
-  checks.push({
-    label: 'H-Beam (single 2in) – Shear',
-    demand: V_demand,
-    capacity: VA_2IN,
-    DCR: V_demand / VA_2IN,
-    pass: s2VPass,
-  });
-
-  if (s2MPass && s2VPass) return 'single_2in';
-
-  // Try single box beam
-  const sMPass = M_demand <= SINGLE_BOX_BEAM.Mal;
-  const sVPass = V_demand <= SINGLE_BOX_BEAM.Va;
-
-  checks.push({
-    label: 'H-Beam (single box beam) – Moment',
-    demand: M_demand,
-    capacity: SINGLE_BOX_BEAM.Mal,
-    DCR: M_demand / SINGLE_BOX_BEAM.Mal,
-    pass: sMPass,
-  });
-  checks.push({
-    label: 'H-Beam (single box beam) – Shear',
-    demand: V_demand,
-    capacity: SINGLE_BOX_BEAM.Va,
-    DCR: V_demand / SINGLE_BOX_BEAM.Va,
-    pass: sVPass,
-  });
-
-  if (sMPass && sVPass) return 'single_box_beam';
-
-  // Try double box beam
-  const dMPass = M_demand <= DOUBLE_BOX_BEAM.Mal;
-  const dVPass = V_demand <= DOUBLE_BOX_BEAM.Va;
-
-  checks.push({
-    label: 'H-Beam (double box beam) – Moment',
-    demand: M_demand,
-    capacity: DOUBLE_BOX_BEAM.Mal,
-    DCR: M_demand / DOUBLE_BOX_BEAM.Mal,
-    pass: dMPass,
-  });
-  checks.push({
-    label: 'H-Beam (double box beam) – Shear',
-    demand: V_demand,
-    capacity: DOUBLE_BOX_BEAM.Va,
-    DCR: V_demand / DOUBLE_BOX_BEAM.Va,
-    pass: dVPass,
-  });
-
-  if (dMPass && dVPass) return 'double_box_beam';
-
+function selLateral(
+  M: number, V: number, W_ft: number, w_lbft: number
+): LateralSelection {
+  if (M <= SBB.Mal && V <= SBB.Va && deflUdlOk(w_lbft, W_ft, SBB.Ix)) return 'sbb';
+  if (M <= DBB.Mal && V <= DBB.Va && deflUdlOk(w_lbft, W_ft, DBB.Ix)) return 'dbb';
   return 'fails';
 }
 
-export function designBumpout(inputs: BumpoutInputs): BumpoutDesignResult {
-  const { p_psf, a_ft, b_ft, L_ft, W_ft, S_ft, Va_connection } = inputs;
+// ---------------------------------------------------------------------------
+// Core loads — b=0, S=W, given (p, j, W, a)
+// ---------------------------------------------------------------------------
+function loads(p: number, j: number, W: number, a: number) {
+  const L = j + a;
 
-  const { errors, warnings } = validateInputs(inputs);
+  // Carry beam (and outer box beam) — b=0 so both have UDL = p·j/2 + self-wt
+  const w_c = (p * j) / 2 + WT_SBB;
+  const M_c = (w_c * W ** 2) / 8;
+  const V_c = (w_c * W) / 2;
 
-  // If there are hard errors, return early with empty results
+  // H-beam component 1: point load P = V_carry at x=a
+  const P_pt = V_c;
+  const M_pt = (P_pt * a * j) / L;
+  const Rw_pt = (P_pt * j) / L;
+  const Rp_pt = (P_pt * a) / L;
+
+  // H-beam component 2: partial UDL from deck (16" OC, half-bay)
+  const w_tr = (p * JOIST_SPACING_FT) / 2;
+  const Rw_tr = (w_tr * j ** 2) / (2 * L);
+  const Rp_tr = (w_tr * j * (2 * L - j)) / (2 * L);
+  const M_tr = (w_tr * j ** 2 * (4 * L * a + j ** 2)) / (8 * L ** 2);
+
+  const M_hb = M_pt + M_tr;
+  const R_wall = Rw_pt + Rw_tr;
+  const R_post = Rp_pt + Rp_tr;
+  const V_hb_gov = Math.max(R_wall, R_post);
+
+  return { w_c, M_c, V_c, M_hb, V_hb_gov, R_wall };
+}
+
+// ---------------------------------------------------------------------------
+// Public API: design for a single (p, j, W) cell
+// ---------------------------------------------------------------------------
+export function designSimple(inputs: SimpleInputs): SimpleDesignResult {
+  const { p_psf, j_ft, W_ft } = inputs;
+
+  const errors = validateInputs(inputs);
   if (errors.length > 0) {
     return {
       inputs,
-      warnings,
-      errors,
-      w_box_beam: 0,
-      M_box: 0,
-      V_box: 0,
-      box_beam_selection: 'exceeds',
-      w_ledger: 0,
-      M_ledger: 0,
-      V_ledger: 0,
-      P_hbeam: 0,
-      ledger_member: 'fails',
+      a_ft: 0,
+      L_ft: 0,
+      hbeam: 'fails',
+      lateral: 'fails',
+      w_carry: 0,
+      M_carry: 0,
+      V_carry: 0,
       M_hbeam: 0,
-      V_hbeam_wall: 0,
-      V_hbeam_post: 0,
-      hbeam_member: 'fails',
-      checks: [],
+      V_hbeam: 0,
+      R_wall: 0,
+      V_conn_carry: 0,
+      V_conn_outer: 0,
+      errors,
     };
   }
 
-  const checks: CheckResult[] = [];
+  const a = Math.min(4, j_ft);
+  const w_h = (p_psf * JOIST_SPACING_FT) / 2;
+  const { w_c, M_c, V_c, M_hb, V_hb_gov, R_wall } = loads(p_psf, j_ft, W_ft, a);
 
-  // Derived geometry
-  const j = L_ft - a_ft; // backspan (joist span from ledger to wall)
-
-  // -------------------------------------------------------------------------
-  // BOX BEAM — spans S between posts
-  // Tributary load from cantilever + backspan, expressed as equivalent UDL
-  // w_box = p*(j+b)^2 / (2j) + self_weight
-  // -------------------------------------------------------------------------
-  const w_box_beam_load = (p_psf * Math.pow(j + b_ft, 2)) / (2 * j);
-  const w_box_beam = w_box_beam_load + SINGLE_BOX_BEAM.weight_plf;
-
-  const M_box = (w_box_beam * Math.pow(S_ft, 2)) / 8;
-  const V_box = (w_box_beam * S_ft) / 2;
-
-  const box_beam_selection = selectBoxBeam(M_box, V_box, w_box_beam, S_ft, checks);
-
-  // -------------------------------------------------------------------------
-  // LEDGER — spans W between H-beams
-  // w_ledger = p*(j^2 - b^2)/(2j) + self_weight
-  // -------------------------------------------------------------------------
-  const w_ledger_load = (p_psf * (Math.pow(j, 2) - Math.pow(b_ft, 2))) / (2 * j);
-  const w_ledger = w_ledger_load + SINGLE_BOX_BEAM.weight_plf;
-
-  const M_ledger = (w_ledger * Math.pow(W_ft, 2)) / 8;
-  const V_ledger = (w_ledger * W_ft) / 2;
-  const P_hbeam = V_ledger; // point load transferred to H-beam at ledger connection
-
-  const ledger_member = selectLedger(M_ledger, V_ledger, w_ledger, W_ft, checks);
-
-  // -------------------------------------------------------------------------
-  // H-BEAM — spans L (house wall to post line)
-  // Two load cases:
-  //   Case 1: Point load P_hbeam at x = a from wall
-  //   Case 2: Tributary UDL from joists (w_trib = p * joist_spacing/2), over span j
-  // -------------------------------------------------------------------------
-  const w_trib = p_psf * (JOIST_SPACING_FT / 2); // plf on H-beam from joist tributary
-
-  // Case 1 — Point load at a
-  const R_A_pt = (P_hbeam * j) / L_ft;
-  const R_B_pt = (P_hbeam * a_ft) / L_ft;
-  const M_pt = (P_hbeam * a_ft * j) / L_ft;
-
-  // Case 2 — Partial UDL over backspan j (from wall to ledger at x=a)
-  // Reactions and max moment for partial UDL starting at x=a, length j=(L-a)
-  // Using standard partial-load formulas:
-  //   R_A_trib = w*j^2 / (2*L)
-  //   R_B_trib = w*j*(2L - j) / (2*L)
-  //   M_trib at x = a + j*(4*L*a + j^2)/(... ) — from spec:
-  //     M_trib = w*j^2*(4*L*a + j^2) / (8*L^2)
-  const R_A_trib = (w_trib * Math.pow(j, 2)) / (2 * L_ft);
-  const R_B_trib = (w_trib * j * (2 * L_ft - j)) / (2 * L_ft);
-  const M_trib = (w_trib * Math.pow(j, 2) * (4 * L_ft * a_ft + Math.pow(j, 2))) / (8 * Math.pow(L_ft, 2));
-
-  // Combined
-  const M_hbeam = M_pt + M_trib;
-  const V_hbeam_wall = R_A_pt + R_A_trib;   // reaction at house wall end
-  const V_hbeam_post = R_B_pt + R_B_trib;   // reaction at post end
-
-  const V_hbeam_gov = Math.max(V_hbeam_wall, V_hbeam_post);
-
-  // Optional connection shear check
-  if (Va_connection !== undefined) {
-    checks.push({
-      label: 'H-Beam Connection – Shear',
-      demand: V_hbeam_wall,
-      capacity: Va_connection,
-      DCR: V_hbeam_wall / Va_connection,
-      pass: V_hbeam_wall <= Va_connection,
-    });
-  }
-
-  const hbeam_member = selectHbeam(M_hbeam, V_hbeam_gov, checks);
+  const hbeam = selHbeam(M_hb, V_hb_gov, w_h, V_c, a, j_ft);
+  const lateral = selLateral(M_c, V_c, W_ft, w_c);
 
   return {
     inputs,
-    warnings,
-    errors,
-    w_box_beam,
-    M_box,
-    V_box,
-    box_beam_selection,
-    w_ledger,
-    M_ledger,
-    V_ledger,
-    P_hbeam,
-    ledger_member,
-    M_hbeam,
-    V_hbeam_wall,
-    V_hbeam_post,
-    hbeam_member,
-    checks,
+    a_ft: a,
+    L_ft: a + j_ft,
+    hbeam,
+    lateral,
+    w_carry: w_c,
+    M_carry: M_c,
+    V_carry: V_c,
+    M_hbeam: M_hb,
+    V_hbeam: V_hb_gov,
+    // Connection demands
+    R_wall,             // H-beam reaction at house wall (into ledger track)
+    V_conn_carry: V_c,  // Carry beam end reaction (download into hanger at H-beam)
+    V_conn_outer: V_c,  // Outer beam end reaction (same as carry when b=0)
+    errors: [],
   };
 }

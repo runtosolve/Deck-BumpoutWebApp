@@ -1,271 +1,260 @@
 "use client";
 
-import { useState } from "react";
-
-export interface Check {
-  label: string;
-  demand: number;
-  capacity: number;
-  DCR: number;
-  pass: boolean;
-}
+import type { HBeamSelection, LateralSelection } from "@/lib/types";
+import { S2IN, D2IN, DBB, SBB } from "@/lib/constants";
 
 export interface DesignResult {
-  inputs: Record<string, number>;
-  warnings: string[];
-  errors: string[];
-  w_box_beam: number;
-  M_box: number;
-  V_box: number;
-  box_beam_selection: string;
-  w_ledger: number;
-  M_ledger: number;
-  V_ledger: number;
-  P_hbeam: number;
-  ledger_member: string;
+  inputs: { p_psf: number; j_ft: number; W_ft: number };
+  a_ft: number;
+  L_ft: number;
+  hbeam: HBeamSelection;
+  lateral: LateralSelection;
+  w_carry: number;
+  M_carry: number;
+  V_carry: number;
   M_hbeam: number;
-  V_hbeam_wall: number;
-  V_hbeam_post: number;
-  hbeam_member: string;
-  checks: Check[];
+  V_hbeam: number;
+  R_wall: number;
+  V_conn_carry: number;
+  V_conn_outer: number;
+  errors: string[];
+}
+
+const HB_LABELS: Record<HBeamSelection, string> = {
+  s2in: "Single 2\" Joist",
+  d2in: "Double 2\" (web-to-web)",
+  dbb: "Double Box Beam",
+  fails: "NOT VIABLE",
+};
+
+const LAT_LABELS: Record<LateralSelection, string> = {
+  sbb: "Single Box Beam",
+  dbb: "Double Box Beam",
+  fails: "NOT VIABLE",
+};
+
+const HB_CODES: Record<HBeamSelection, string> = {
+  s2in: "S2", d2in: "D2", dbb: "DB", fails: "--",
+};
+
+const LAT_CODES: Record<LateralSelection, string> = {
+  sbb: "B", dbb: "DB", fails: "--",
+};
+
+type ColorTier = "green" | "blue" | "grey";
+
+function hbColor(sel: HBeamSelection): ColorTier {
+  if (sel === "fails") return "grey";
+  if (sel === "dbb") return "blue";
+  return "green";
+}
+
+function latColor(sel: LateralSelection): ColorTier {
+  if (sel === "fails") return "grey";
+  if (sel === "dbb") return "blue";
+  return "green";
+}
+
+function worstColor(a: ColorTier, b: ColorTier): ColorTier {
+  if (a === "grey" || b === "grey") return "grey";
+  if (a === "blue" || b === "blue") return "blue";
+  return "green";
+}
+
+const COLOR_STYLES: Record<ColorTier, { bg: string; border: string; text: string; badge: string }> = {
+  green: {
+    bg: "bg-green-50",
+    border: "border-green-500",
+    text: "text-green-800",
+    badge: "bg-green-600",
+  },
+  blue: {
+    bg: "bg-blue-50",
+    border: "border-blue-500",
+    text: "text-blue-800",
+    badge: "bg-blue-600",
+  },
+  grey: {
+    bg: "bg-gray-100",
+    border: "border-gray-400",
+    text: "text-black",
+    badge: "bg-gray-500",
+  },
+};
+
+function hbCapacity(sel: HBeamSelection) {
+  if (sel === "s2in") return S2IN;
+  if (sel === "d2in") return D2IN;
+  if (sel === "dbb") return DBB;
+  return null;
+}
+
+function latCapacity(sel: LateralSelection) {
+  if (sel === "sbb") return SBB;
+  if (sel === "dbb") return DBB;
+  return null;
 }
 
 interface ResultsDisplayProps {
   result: DesignResult;
 }
 
-function formatValue(val: number, label: string): string {
-  const lower = label.toLowerCase();
-  if (lower.includes("deflect") || lower.includes("defl")) {
-    return `${val.toFixed(3)} in`;
-  }
-  if (lower.includes("moment") || lower.includes("ft-lb")) {
-    return `${Math.round(val).toLocaleString()} ft-lb`;
-  }
-  return `${Math.round(val).toLocaleString()} lbs`;
-}
-
-function formatCapacity(cap: number, label: string): string {
-  return formatValue(cap, label);
-}
-
-function formatMemberSelection(selection: string): string {
-  const mapping: Record<string, string> = {
-    "single": "Single Box Beam",
-    "double": "Double Box Beam",
-    "exceeds": "EXCEEDS CAPACITY",
-    "single_2in": "Single 2-inch Joist",
-    "single_box_beam": "Single Box Beam",
-    "double_box_beam": "Double Box Beam",
-    "fails": "DESIGN FAILS",
-  };
-  return mapping[selection] || selection;
-}
-
 export default function ResultsDisplay({ result }: ResultsDisplayProps) {
-  const [checksOpen, setChecksOpen] = useState(false);
+  const allFail = result.hbeam === "fails" || result.lateral === "fails";
+  const overall = worstColor(hbColor(result.hbeam), latColor(result.lateral));
+  const cellCode = `${HB_CODES[result.hbeam]}/${LAT_CODES[result.lateral]}`;
 
-  const totalChecks = result.checks.length;
-  const failedChecks = result.checks.filter((c) => !c.pass).length;
+  // Errors from validation
+  if (result.errors.length > 0) {
+    return (
+      <div className="space-y-3">
+        {result.errors.map((err, i) => (
+          <div
+            key={i}
+            className="flex gap-3 items-start bg-red-50 border-2 border-red-500 rounded-xl px-5 py-4"
+            role="alert"
+          >
+            <span className="text-red-600 text-2xl flex-shrink-0 font-bold">!</span>
+            <p className="text-base text-red-800 font-medium">{err}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
-  // Design passes when all checks pass, no errors, and no member selections are "exceeds" or "fails"
-  const membersFail =
-    result.box_beam_selection === "exceeds" ||
-    result.ledger_member === "fails" ||
-    result.hbeam_member === "fails";
-
-  const allPass = failedChecks === 0 && result.errors.length === 0 && !membersFail;
-
-  const members = [
-    {
-      name: "Outer Beam",
-      selection: result.box_beam_selection,
-      detail: `Load: ${Math.round(result.w_box_beam)} plf — Moment: ${Math.round(result.M_box).toLocaleString()} ft-lb — Shear: ${Math.round(result.V_box).toLocaleString()} lbs`,
-    },
-    {
-      name: "Ledger",
-      selection: result.ledger_member,
-      detail: `Load: ${Math.round(result.w_ledger)} plf — Moment: ${Math.round(result.M_ledger).toLocaleString()} ft-lb — Shear: ${Math.round(result.V_ledger).toLocaleString()} lbs`,
-    },
-    {
-      name: "Side Brackets (H-Beam)",
-      selection: result.hbeam_member,
-      detail: `Point load: ${Math.round(result.P_hbeam).toLocaleString()} lbs — Moment: ${Math.round(result.M_hbeam).toLocaleString()} ft-lb`,
-    },
-  ];
+  const hbStyle = COLOR_STYLES[hbColor(result.hbeam)];
+  const latStyle = COLOR_STYLES[latColor(result.lateral)];
+  const overallStyle = COLOR_STYLES[overall];
 
   return (
     <div className="space-y-6">
-      {/* Overall Status Banner */}
+      {/* Overall status banner */}
       <div
-        className={`rounded-xl px-6 py-5 text-center ${
-          allPass
-            ? "bg-green-600 text-white"
-            : "bg-red-600 text-white"
-        }`}
+        className={`rounded-xl px-6 py-5 text-center text-white ${overallStyle.badge}`}
         role="status"
         aria-live="polite"
       >
-        <p className="text-3xl font-black tracking-wide">
-          {allPass ? "ALL CHECKS PASS" : `${failedChecks} CHECK${failedChecks !== 1 ? "S" : ""} FAILED`}
-        </p>
+        <p className="text-4xl font-black tracking-wide">{cellCode}</p>
         <p className="text-lg mt-1 opacity-90">
-          {totalChecks} checks total
+          {allFail
+            ? "No viable member combination at this span"
+            : overall === "blue"
+              ? "Passes — Double Box Beam H-beam required"
+              : "All members pass — standard framing"}
         </p>
       </div>
 
-      {/* Member Selections */}
-      <section>
-        <h2 className="text-xl font-bold text-gray-700 mb-3 uppercase tracking-wide">
-          Member Selections
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {members.map((member) => {
-            const memberChecks = result.checks.filter((c) =>
-              c.label.toLowerCase().includes(member.name.toLowerCase().split(" ")[0])
-            );
-            const memberPass = memberChecks.every((c) => c.pass);
-            const hasChecks = memberChecks.length > 0;
+      {/* Assumptions note */}
+      <div className="text-sm text-black bg-gray-50 rounded-lg px-4 py-3">
+        Assumptions: b = 0 (no overhang), S = W (posts at corners), a = {result.a_ft} ft (worst-case bumpout depth).
+        Total H-beam span L = {result.L_ft} ft.
+      </div>
 
-            // Member fails if selection is "exceeds" or "fails"
-            const selectionFails = member.selection === "exceeds" || member.selection === "fails";
-            const statusPass = (!hasChecks || memberPass) && !selectionFails;
-
+      {/* Member cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* H-beam card */}
+        <div className={`rounded-xl border-2 p-5 ${hbStyle.bg} ${hbStyle.border}`}>
+          <h3 className="text-base font-bold text-black mb-1">H-Beam (Side Brackets)</h3>
+          <p className={`text-2xl font-black ${hbStyle.text}`}>
+            {HB_LABELS[result.hbeam]}
+          </p>
+          <p className="text-sm text-black mt-2">
+            Code: <span className="font-bold">{HB_CODES[result.hbeam]}</span>
+            {result.hbeam === "dbb" && (
+              <span className="ml-2 text-blue-700 font-medium">
+                — raises deck ~1/8&quot; above plane
+              </span>
+            )}
+          </p>
+          {(() => {
+            const cap = hbCapacity(result.hbeam);
             return (
-              <div
-                key={member.name}
-                className={`rounded-xl border-2 p-5 ${
-                  statusPass
-                    ? "border-green-500 bg-green-50"
-                    : "border-red-500 bg-red-50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="text-base font-bold text-gray-800">{member.name}</h3>
-                  <span
-                    className={`text-2xl font-black flex-shrink-0 ${
-                      statusPass ? "text-green-600" : "text-red-600"
-                    }`}
-                    aria-label={statusPass ? "Pass" : "Fail"}
-                  >
-                    {statusPass ? "✓" : "✗"}
-                  </span>
+              <div className="mt-3 pt-3 border-t border-gray-300 text-sm">
+                <div className="grid grid-cols-3 gap-x-2 gap-y-1">
+                  <span />
+                  <span className="text-black text-xs font-semibold text-right">Demand</span>
+                  <span className="text-black text-xs font-semibold text-right">Capacity</span>
+
+                  <span className="text-black">Moment:</span>
+                  <span className="font-mono font-semibold text-black text-right">{Math.round(result.M_hbeam).toLocaleString()}</span>
+                  <span className="font-mono text-black text-right">{cap ? cap.Mal.toLocaleString() : "—"} ft-lb</span>
+
+                  <span className="text-black">Shear:</span>
+                  <span className="font-mono font-semibold text-black text-right">{Math.round(result.V_hbeam).toLocaleString()}</span>
+                  <span className="font-mono text-black text-right">{cap ? cap.Va.toLocaleString() : "—"} lbs</span>
                 </div>
-                <p className="text-lg font-bold text-gray-900">{formatMemberSelection(member.selection)}</p>
-                <p className="text-sm text-gray-600 mt-1">{member.detail}</p>
               </div>
             );
-          })}
+          })()}
         </div>
-      </section>
 
-      {/* Check Details (collapsible) */}
-      <section>
-        <button
-          type="button"
-          onClick={() => setChecksOpen((o) => !o)}
-          className="flex items-center gap-2 w-full text-left text-xl font-bold text-gray-700 uppercase tracking-wide py-3 border-b-2 border-gray-300 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 rounded"
-          aria-expanded={checksOpen}
-        >
-          <span className="text-lg">{checksOpen ? "▼" : "▶"}</span>
-          Check Details ({totalChecks} checks)
-        </button>
+        {/* Carry / Outer beam card */}
+        <div className={`rounded-xl border-2 p-5 ${latStyle.bg} ${latStyle.border}`}>
+          <h3 className="text-base font-bold text-black mb-1">Carry Beam &amp; Outer Beam</h3>
+          <p className={`text-2xl font-black ${latStyle.text}`}>
+            {LAT_LABELS[result.lateral]}
+          </p>
+          <p className="text-sm text-black mt-2">
+            Code: <span className="font-bold">{LAT_CODES[result.lateral]}</span>
+            <span className="ml-2">— identical when b = 0</span>
+          </p>
+          {(() => {
+            const cap = latCapacity(result.lateral);
+            return (
+              <div className="mt-3 pt-3 border-t border-gray-300 text-sm">
+                <div className="grid grid-cols-3 gap-x-2 gap-y-1">
+                  <span />
+                  <span className="text-black text-xs font-semibold text-right">Demand</span>
+                  <span className="text-black text-xs font-semibold text-right">Capacity</span>
 
-        {checksOpen && (
-          <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200">
-            <table className="w-full text-base border-collapse">
-              <thead>
-                <tr className="bg-gray-700 text-white">
-                  <th className="text-left px-4 py-3 font-bold">Check</th>
-                  <th className="text-right px-4 py-3 font-bold">Demand</th>
-                  <th className="text-right px-4 py-3 font-bold">Capacity</th>
-                  <th className="text-right px-4 py-3 font-bold">Ratio</th>
-                  <th className="text-center px-4 py-3 font-bold">Pass?</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.checks.map((check, i) => (
-                  <tr
-                    key={i}
-                    className={
-                      check.pass
-                        ? "bg-green-50 border-b border-green-200"
-                        : "bg-red-50 border-b border-red-200"
-                    }
-                  >
-                    <td className="px-4 py-3 font-medium text-gray-800">{check.label}</td>
-                    <td className="px-4 py-3 text-right text-gray-700 font-mono">
-                      {formatValue(check.demand, check.label)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-700 font-mono">
-                      {formatCapacity(check.capacity, check.label)}
-                    </td>
-                    <td
-                      className={`px-4 py-3 text-right font-bold font-mono ${
-                        check.pass ? "text-green-700" : "text-red-700"
-                      }`}
-                    >
-                      {check.DCR.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span
-                        className={`inline-block text-xl font-black ${
-                          check.pass ? "text-green-600" : "text-red-600"
-                        }`}
-                        aria-label={check.pass ? "Pass" : "Fail"}
-                      >
-                        {check.pass ? "✓" : "✗"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                  <span className="text-black">Moment:</span>
+                  <span className="font-mono font-semibold text-black text-right">{Math.round(result.M_carry).toLocaleString()}</span>
+                  <span className="font-mono text-black text-right">{cap ? cap.Mal.toLocaleString() : "—"} ft-lb</span>
 
-      {/* Warnings */}
-      {result.warnings.length > 0 && (
-        <section>
-          <h2 className="text-xl font-bold text-yellow-700 mb-3 uppercase tracking-wide">
-            Warnings
-          </h2>
-          <div className="space-y-2">
-            {result.warnings.map((w, i) => (
-              <div
-                key={i}
-                className="flex gap-3 items-start bg-yellow-50 border-2 border-yellow-400 rounded-xl px-5 py-4"
-                role="alert"
-              >
-                <span className="text-yellow-600 text-2xl flex-shrink-0 font-bold">!</span>
-                <p className="text-base text-yellow-800 font-medium">{w}</p>
+                  <span className="text-black">Shear:</span>
+                  <span className="font-mono font-semibold text-black text-right">{Math.round(result.V_carry).toLocaleString()}</span>
+                  <span className="font-mono text-black text-right">{cap ? cap.Va.toLocaleString() : "—"} lbs</span>
+                </div>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
+            );
+          })()}
+        </div>
+      </div>
 
-      {/* Errors */}
-      {result.errors.length > 0 && (
-        <section>
-          <h2 className="text-xl font-bold text-red-700 mb-3 uppercase tracking-wide">
-            Errors
-          </h2>
-          <div className="space-y-2">
-            {result.errors.map((err, i) => (
-              <div
-                key={i}
-                className="flex gap-3 items-start bg-red-50 border-2 border-red-500 rounded-xl px-5 py-4"
-                role="alert"
-              >
-                <span className="text-red-600 text-2xl flex-shrink-0 font-bold">✗</span>
-                <p className="text-base text-red-800 font-medium">{err}</p>
-              </div>
-            ))}
+      {/* Connection demands */}
+      <div className="rounded-xl border-2 border-gray-300 bg-white p-5">
+        <h3 className="text-base font-bold text-black mb-3">Connection Demands</h3>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 text-sm">
+          <div>
+            <p className="text-black font-semibold mb-1">H-Beam to Wall</p>
+            <p className="text-black">Reaction at house wall (into ledger track)</p>
+            <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.R_wall).toLocaleString()} lbs</p>
           </div>
-        </section>
-      )}
+          <div>
+            <p className="text-black font-semibold mb-1">Carry Beam to H-Beam</p>
+            <p className="text-black">End reaction (download into hanger)</p>
+            <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.V_conn_carry).toLocaleString()} lbs</p>
+          </div>
+          <div>
+            <p className="text-black font-semibold mb-1">Outer Beam to H-Beam</p>
+            <p className="text-black">End reaction at corner</p>
+            <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.V_conn_outer).toLocaleString()} lbs</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Color legend */}
+      <div className="flex flex-wrap gap-4 text-sm text-black">
+        <span className="flex items-center gap-2">
+          <span className="inline-block w-4 h-4 rounded bg-green-600" /> S2 or D2 (standard)
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="inline-block w-4 h-4 rounded bg-blue-600" /> DB (Double Box Beam required)
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="inline-block w-4 h-4 rounded bg-gray-500" /> Not viable
+        </span>
+      </div>
     </div>
   );
 }

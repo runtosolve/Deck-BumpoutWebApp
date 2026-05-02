@@ -20,17 +20,11 @@ export default function Home() {
     setApiError(null);
     setResult(null);
 
-    const body: Record<string, number> = {
+    const body = {
       p_psf: Number(values.p_psf),
-      a_ft: Number(values.a_ft),
-      b_ft: Number(values.b_ft),
-      L_ft: Number(values.L_ft),
+      j_ft: Number(values.j_ft),
       W_ft: Number(values.W_ft),
-      S_ft: Number(values.S_ft),
     };
-    if (values.Va_connection.trim()) {
-      body.Va_connection = Number(values.Va_connection);
-    }
 
     try {
       const res = await fetch("/api/design", {
@@ -39,7 +33,7 @@ export default function Home() {
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) {
+      if (!res.ok && res.status !== 422) {
         const text = await res.text();
         setApiError(`Server error (${res.status}): ${text}`);
         return;
@@ -48,7 +42,6 @@ export default function Home() {
       const data: DesignResult = await res.json();
       setResult(data);
 
-      // Scroll to results on mobile
       setTimeout(() => {
         document.getElementById("results-section")?.scrollIntoView({ behavior: "smooth" });
       }, 100);
@@ -69,30 +62,30 @@ export default function Home() {
           HBAM Bumpout Designer
         </h1>
         <p className="mt-2 text-lg text-white">
-          Enter your deck dimensions below to size the framing members.
+          Simplified span tables — enter joist span and bumpout width to size members.
         </p>
       </header>
 
-      {/* Input Form Section */}
+      {/* Input Form */}
       <section className="bg-white rounded-2xl shadow-md p-6 sm:p-8 mb-8">
         <h2 className="text-2xl font-bold text-gray-800 mb-6 pb-3 border-b-2 border-gray-200">
-          Enter Your Deck Dimensions
+          Enter Your Dimensions
         </h2>
         <InputForm onSubmit={handleCalculate} loading={loading} onChange={handleValuesChange} />
       </section>
 
-      {/* Diagram Guide Section */}
+      {/* Diagram Guide */}
       <section className="mb-8">
         <DiagramGuide values={currentValues || undefined} />
       </section>
 
-      {/* API-level error (not validation errors) */}
+      {/* API error */}
       {apiError && (
         <div
           className="mb-8 flex gap-3 items-start bg-red-50 border-2 border-red-500 rounded-xl px-5 py-4"
           role="alert"
         >
-          <span className="text-red-600 text-2xl flex-shrink-0 font-bold">✗</span>
+          <span className="text-red-600 text-2xl flex-shrink-0 font-bold">!</span>
           <div>
             <p className="text-lg font-bold text-red-800">Could not complete calculation</p>
             <p className="text-base text-red-700 mt-1">{apiError}</p>
@@ -100,7 +93,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Results Section */}
+      {/* Results */}
       {result && (
         <section
           id="results-section"
