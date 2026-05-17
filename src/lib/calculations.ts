@@ -174,9 +174,9 @@ export function designSimple(inputs: SimpleInputs): SimpleDesignResult {
     M_hbeam: M_hb,
     V_hbeam: V_hb_gov,
     // Connection demands
-    R_wall,             // H-beam reaction at house wall (into ledger track)
-    V_conn_carry: V_c,  // Carry beam end reaction (download into hanger at H-beam)
-    V_conn_outer: V_c,  // Outer beam end reaction (same as carry when b=0)
+    R_wall,             // H-beam wall reaction (lbs)
+    V_conn_carry: V_c,  // Carry beam end reaction (lbs)
+    V_conn_outer: V_c,  // Outer beam end reaction (= V_carry when b=0)
     errors: [],
     maxForConfig: (hbeam !== 'fails' && lateral !== 'fails')
       ? maxDemandsForConfig(hbeam, lateral)

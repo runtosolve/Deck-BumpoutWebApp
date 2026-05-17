@@ -22,9 +22,9 @@ export interface SimpleDesignResult {
   M_hbeam: number;        // ft-lb
   V_hbeam: number;        // lbs (governing reaction)
   // Connection demands
-  R_wall: number;         // lbs — H-beam reaction at house wall (into ledger track)
-  V_conn_carry: number;   // lbs — carry beam end reaction (download into hanger at H-beam)
-  V_conn_outer: number;   // lbs — outer beam end reaction at H-beam corner (= V_carry when b=0)
+  R_wall: number;         // lbs — H-beam wall reaction
+  V_conn_carry: number;   // lbs — carry beam end reaction at H-beam
+  V_conn_outer: number;   // lbs — outer beam end reaction at H-beam (= V_carry when b=0)
   errors: string[];
   // Max connection demands across all cells with the same member config
   maxForConfig: {

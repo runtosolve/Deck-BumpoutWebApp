@@ -237,12 +237,12 @@ export default function ResultsDisplay({ result }: ResultsDisplayProps) {
           </div>
           <div>
             <p className="text-black font-semibold mb-1">Carry Beam to H-Beam</p>
-            <p className="text-black">End reaction (download)</p>
+            <p className="text-black">Carry beam end reaction</p>
             <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.V_conn_carry).toLocaleString()} lbs</p>
           </div>
           <div>
             <p className="text-black font-semibold mb-1">Outer Beam to H-Beam</p>
-            <p className="text-black">End reaction at corner</p>
+            <p className="text-black">Outer beam end reaction</p>
             <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.V_conn_outer).toLocaleString()} lbs</p>
           </div>
         </div>

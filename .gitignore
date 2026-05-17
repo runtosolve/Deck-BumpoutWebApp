@@ -44,8 +44,19 @@ yarn-error.log*
 CLAUDE.md
 AGENTS.md
 
+# generated reports
+BUILD_SUMMARY.md
+DEPLOYMENT.md
+FORMULA_VALIDATION_REPORT.md
+QA_FINAL_SUMMARY.md
+TEST_REPORT.md
+TEST_SETUP.md
+test-results.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
 
 .vercel
