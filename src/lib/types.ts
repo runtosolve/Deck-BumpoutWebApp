@@ -26,4 +26,10 @@ export interface SimpleDesignResult {
   V_conn_carry: number;   // lbs — carry beam end reaction (download into hanger at H-beam)
   V_conn_outer: number;   // lbs — outer beam end reaction at H-beam corner (= V_carry when b=0)
   errors: string[];
+  // Max connection demands across all cells with the same member config
+  maxForConfig: {
+    V_carry: number;   // lbs — max hanger download for this config
+    R_wall: number;    // lbs — max wall reaction for this config
+    cellCount: number; // how many cells share this config
+  } | null;
 }

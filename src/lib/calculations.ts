@@ -7,6 +7,7 @@ import {
 import {
   E_PSI, JOIST_SPACING_FT, WT_SBB,
   S2IN, D2IN, DBB, SBB,
+  P_VALS, J_MIN, J_MAX, W_MIN, W_MAX,
 } from './constants';
 import { validateInputs } from './validation';
 
@@ -99,6 +100,35 @@ function loads(p: number, j: number, W: number, a: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Sweep: max connection demands for a given member configuration
+// ---------------------------------------------------------------------------
+function maxDemandsForConfig(targetHb: HBeamSelection, targetLat: LateralSelection) {
+  let maxV = 0;
+  let maxR = 0;
+  let count = 0;
+
+  for (const p of P_VALS) {
+    for (let j = J_MIN; j <= J_MAX; j++) {
+      const a = Math.min(4, j);
+      const w_h = (p * JOIST_SPACING_FT) / 2;
+      for (let W = W_MIN; W <= W_MAX; W++) {
+        const { w_c, M_c, V_c, M_hb, V_hb_gov, R_wall } = loads(p, j, W, a);
+        const hb = selHbeam(M_hb, V_hb_gov, w_h, V_c, a, j);
+        const lat = selLateral(M_c, V_c, W, w_c);
+        if (hb === targetHb && lat === targetLat) {
+          count++;
+          if (V_c > maxV) maxV = V_c;
+          if (R_wall > maxR) maxR = R_wall;
+        }
+      }
+    }
+  }
+
+  if (count === 0) return null;
+  return { V_carry: Math.round(maxV), R_wall: Math.round(maxR), cellCount: count };
+}
+
+// ---------------------------------------------------------------------------
 // Public API: design for a single (p, j, W) cell
 // ---------------------------------------------------------------------------
 export function designSimple(inputs: SimpleInputs): SimpleDesignResult {
@@ -121,6 +151,7 @@ export function designSimple(inputs: SimpleInputs): SimpleDesignResult {
       V_conn_carry: 0,
       V_conn_outer: 0,
       errors,
+      maxForConfig: null,
     };
   }
 
@@ -147,5 +178,8 @@ export function designSimple(inputs: SimpleInputs): SimpleDesignResult {
     V_conn_carry: V_c,  // Carry beam end reaction (download into hanger at H-beam)
     V_conn_outer: V_c,  // Outer beam end reaction (same as carry when b=0)
     errors: [],
+    maxForConfig: (hbeam !== 'fails' && lateral !== 'fails')
+      ? maxDemandsForConfig(hbeam, lateral)
+      : null,
   };
 }
