@@ -226,48 +226,26 @@ export default function ResultsDisplay({ result }: ResultsDisplayProps) {
         </div>
       </div>
 
-      {/* Connection demands */}
-      <div className="rounded-xl border-2 border-gray-300 bg-white p-5">
-        <h3 className="text-base font-bold text-black mb-3">Connection Demands</h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 text-sm">
-          <div>
-            <p className="text-black font-semibold mb-1">H-Beam to Wall</p>
-            <p className="text-black">Reaction at house wall</p>
-            <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.R_wall).toLocaleString()} lbs</p>
-          </div>
-          <div>
-            <p className="text-black font-semibold mb-1">Carry Beam to H-Beam</p>
-            <p className="text-black">Carry beam end reaction</p>
-            <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.V_conn_carry).toLocaleString()} lbs</p>
-          </div>
-          <div>
-            <p className="text-black font-semibold mb-1">Outer Beam to H-Beam</p>
-            <p className="text-black">Outer beam end reaction</p>
-            <p className="font-mono font-bold text-black text-lg mt-1">{Math.round(result.V_conn_outer).toLocaleString()} lbs</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Max connection demands for this config */}
+      {/* Connection demands — max for this member config */}
       {result.maxForConfig && !allFail && (
         <div className={`rounded-xl border-2 p-5 ${overallStyle.bg} ${overallStyle.border}`}>
           <h3 className="text-base font-bold text-black mb-1">
-            Max Connection Demands for {cellCode}
+            Connection Demands for {cellCode}
           </h3>
           <p className="text-sm text-black mb-3">
-            Worst case across all {result.maxForConfig.cellCount.toLocaleString()} cells
-            that use the {cellCode} configuration. Design connections to these values
-            to cover every use of this member combination.
+            Design connections to these values — worst case across
+            all {result.maxForConfig.cellCount.toLocaleString()} cells
+            that use the {cellCode} configuration.
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-sm">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 text-sm">
             <div className="bg-white rounded-lg p-4">
-              <p className="text-black font-semibold mb-1">Max Carry/Outer Beam Download</p>
+              <p className="text-black font-semibold mb-1">Carry/Outer Beam End Reaction</p>
               <p className="font-mono font-bold text-black text-2xl">
                 {result.maxForConfig.V_carry.toLocaleString()} lbs
               </p>
             </div>
             <div className="bg-white rounded-lg p-4">
-              <p className="text-black font-semibold mb-1">Max Wall Reaction</p>
+              <p className="text-black font-semibold mb-1">H-Beam Wall Reaction</p>
               <p className="font-mono font-bold text-black text-2xl">
                 {result.maxForConfig.R_wall.toLocaleString()} lbs
               </p>
